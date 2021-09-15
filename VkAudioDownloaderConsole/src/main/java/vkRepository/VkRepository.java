@@ -9,7 +9,6 @@ import org.json.JSONObject;
 import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
-import org.jsoup.parser.Parser;
 import org.jsoup.select.Elements;
 import parsers.AudioParser;
 import parsers.Patterns;
@@ -21,35 +20,36 @@ import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
 
 
-
-
-public class VkRepository {
+public class VkRepository implements IVkRepository {
     private static final long DDOS_DELAY = 1000;
 
-    private final IVkClient client;
+    private static IVkClient client = null;
     private final VkMusicLinkDecoder linkDecoder = new VkMusicLinkDecoder();
-    private final Map<Integer, AudioData> audios = new HashMap<>();
-    private final BlockingQueue<String> audioBlocks = new LinkedBlockingQueue<>();
+    private static final Map<Integer, AudioData> audios = new HashMap<>();
+    private static final BlockingQueue<String> audioBlocks = new LinkedBlockingQueue<>();
 
     public VkRepository(IVkClient client) {
-        this.client = client;
+        VkRepository.client = client;
     }
 
     public Boolean findAllAudios() {
 
         String html = client.getAudios(); // загрузка нач страницы
+
+        GetBlocksThread thread = new GetBlocksThread(html);
+        thread.start();
+
         getStartPageAudios(html); // парсинг нач страницы + добавление в мапу
 
-        getAudioBlocks(html);// загрузка блоков + парсинг id следю блока + добавление в очередь, для дальнейшей работы
-
-        getAudios();// разгребание очереди + парсинг + извелчение полезной информации
-
-        getLinks(); // загрузка ссылок на скачивание
+        // когда нач стр распарсится, начинаем разгребать очередь
+        while (thread.isAlive())
+            getAudios();// разгребание очереди + парсинг + извелчение полезной информации
 
         return true;
     }
 
-    private void getLinks() {
+    // загрузка ссылок на скачивание
+    public void getLinks() {
 
         for (AudioData data : audios.values()) {
             String reloadAudioResponse = client.reloadAudio(data.getReloadId());
@@ -87,7 +87,6 @@ public class VkRepository {
         }
     }
 
-    // придумать нормальную форму этого говна
     private void getAudios() {
 
         while (!audioBlocks.isEmpty()) {
@@ -107,29 +106,28 @@ public class VkRepository {
                 json = new JSONObject(data);
                 JSONArray array = json.optJSONArray("list");
 
+                int add = audios.size();
+
                 for (int i = 0; i < array.length(); i++) {
                     AudioData audioFormat = new AudioData();
                     JSONArray audioData = array.optJSONArray(i);
                     AudioParser.parseAudioData(audioData, audioFormat);
 
-                    audios.put(audios.size() + i, audioFormat);
+                    audios.put(add + i, audioFormat);
                 }
-            }
-            catch (JSONException e)
-            {
+            } catch (JSONException e) {
                 System.out.println(e.getMessage());
             }
+
         }
     }
 
-    private void getAudioBlocks(String html) {
+    public static void getAudioBlocks(String html) {
         String nextBlockId = AudioParser.parseNextBlockId(html, Patterns.FROM_HTML);
 
-        while(!nextBlockId.isEmpty()) {
+        while (!nextBlockId.isEmpty()) {
 
-            System.out.println(nextBlockId);
-
-            String audioBlock = client.loadAudioBlocks(nextBlockId);
+            String audioBlock = VkRepository.client.loadAudioBlocks(nextBlockId);
 
             nextBlockId = AudioParser.parseNextBlockId(audioBlock, Patterns.FROM_JSON);
 
@@ -150,10 +148,27 @@ public class VkRepository {
             String audioData = audio.dataset().getOrDefault(
                     "audio", "[]");
 
+            System.out.println(audioData);
+
             AudioParser.parseAudioData(audioData, data);
             audios.put(i, data);
         }
     }
 
-    public Map<Integer, AudioData> getIntegerAudioDataMap () { return this.audios; }
+    public Map<Integer, AudioData> getIntegerAudioDataMap() {
+        return this.audios;
+    }
+
+    static class GetBlocksThread extends Thread {
+        private String html;
+
+        public GetBlocksThread(String html) {
+            this.html = html;
+        }
+
+        @Override
+        public void run() {
+            getAudioBlocks(html);
+        }
+    }
 }

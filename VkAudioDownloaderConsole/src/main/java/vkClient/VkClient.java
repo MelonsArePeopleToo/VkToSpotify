@@ -2,6 +2,7 @@ package vkClient;
 
 import okhttp3.*;
 import parsers.LoginParser;
+import parsers.Patterns;
 
 import java.io.IOException;
 import java.util.*;
@@ -66,7 +67,8 @@ public class VkClient implements IVkClient {
         try {
             response = client.newCall(request).execute();
             if(response.isSuccessful())
-                loginUrl = LoginParser.parseUrl(response.body().string());
+                loginUrl = LoginParser.parseUrl(
+                        response.body().string(), Patterns.URL);
         }
         catch (IOException | NullPointerException e) {
             System.out.println(e.getMessage());
@@ -101,7 +103,9 @@ public class VkClient implements IVkClient {
             response = client.newCall(request).execute();
             if(response.isSuccessful()) {
                 responseBody = response.body().string();
-                remixSid = LoginParser.parseRemixSid(response);
+
+                remixSid = LoginParser.parseRemixSid(
+                        response, Patterns.SID);
             }
             else
                 return false;
@@ -111,18 +115,17 @@ public class VkClient implements IVkClient {
             return false;
         }
 
-        if (!responseBody.isEmpty() || !remixSid.isEmpty()) {
-            this.id = LoginParser.parseId(responseBody);
+        if (!responseBody.isEmpty() && !remixSid.isEmpty()) {
+            this.id = LoginParser.parseId(responseBody, Patterns.ID);
             return true;
         }
-
         return false;
     }
 
     @Override
     public String getAudios() {
         Request request = new Request.Builder()
-                .url("https://m.vk.com/audios" + this.id + "?section=all")
+                .url("https://m.vk.com/audios" + id + "?section=my")
                 .get()
                 .build();
 
@@ -150,7 +153,7 @@ public class VkClient implements IVkClient {
                 .build();
 
         Request request = new Request.Builder()
-                .url("https://m.vk.com/audios33066660?section=my&start_from=" + startFrom)
+                .url("https://m.vk.com/audios" + id + "?section=my&start_from=" + startFrom)
                 .header("Content-Type", "application/x-www-form-urlencoded")
                 .header("X-Requested-With", "XMLHttpRequest")
                 .post(body)
@@ -200,8 +203,7 @@ public class VkClient implements IVkClient {
             if (response.isSuccessful()) {
                 json = response.body().string();
             }
-        } catch (IOException | NullPointerException e) {
-            // nothing
+        } catch (IOException | NullPointerException ignored) {
         }
         return json;
     }
